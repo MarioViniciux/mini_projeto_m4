@@ -1,18 +1,23 @@
+// Importa o driver SQLite3 e a função open da biblioteca sqlite
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 
+// Função para abrir uma conexão com o banco de dados SQLite
 export async function openDb() {
   return open({
-    filename: './database.db', 
-    driver: sqlite3.Database
+    filename: './database.db', // Caminho do arquivo do banco de dados
+    driver: sqlite3.Database   // Driver utilizado
   });
 }
 
+// Função para inicializar o banco de dados e criar as tabelas necessárias
 export async function initializeDb() {
   const db = await openDb();
 
+  // Habilita as chaves estrangeiras no SQLite
   await db.exec('PRAGMA foreign_keys = ON;');
 
+  // Cria a tabela de usuários, se não existir
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY,
@@ -21,6 +26,7 @@ export async function initializeDb() {
     )
   `);
 
+  // Cria a tabela de senhas, se não existir
   await db.exec(`
     CREATE TABLE IF NOT EXISTS passwords (
       id INTEGER PRIMARY KEY,
@@ -34,6 +40,7 @@ export async function initializeDb() {
     )
   `);
 
+  // Cria a tabela de tags, se não existir
   await db.exec(`
     CREATE TABLE IF NOT EXISTS tags (
       id INTEGER PRIMARY KEY,
@@ -41,6 +48,7 @@ export async function initializeDb() {
     )
   `);
 
+  // Cria a tabela de associação entre senhas e tags (muitos para muitos)
   await db.exec(`
     CREATE TABLE IF NOT EXISTS password_tags (
       password_id INTEGER,
@@ -54,6 +62,7 @@ export async function initializeDb() {
   console.log('Banco de dados inicializado com sucesso.');
 }
 
+// Inicializa o banco de dados ao iniciar o projeto
 initializeDb().catch(err => {
   console.error('Erro ao inicializar o banco de dados:', err);
 });
