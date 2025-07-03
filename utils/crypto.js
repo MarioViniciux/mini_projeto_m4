@@ -2,14 +2,12 @@ import 'dotenv/config';
 import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-ctr';
-// Garante que a chave tenha o tamanho correto (32 bytes)
 const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
 
 if (ENCRYPTION_KEY.length !== 32) {
     throw new Error('A ENCRYPTION_KEY deve ter 64 caracteres hexadecimais (32 bytes).');
 }
 
-// Função para criptografar
 export const encrypt = (text) => {
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
@@ -17,7 +15,6 @@ export const encrypt = (text) => {
     return iv.toString('hex') + ':' + encrypted.toString('hex');
 };
 
-// Função para decriptografar
 export const decrypt = (hash) => {
     try {
         const parts = hash.split(':');
@@ -30,6 +27,6 @@ export const decrypt = (hash) => {
         return decrypted.toString();
     } catch (error) {
         console.error("Erro ao decriptografar:", error);
-        return null; // Retorna null se a decriptografia falhar
+        return null; 
     }
 };

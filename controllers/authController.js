@@ -1,36 +1,33 @@
 import 'dotenv/config';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
-import { readDatabase, writeDatabase } from '../utils/db.js';
+import { openDb } from '../utils/database.js';
 
 export const register = async (req, res) => {
   const { email, password } = req.body;
-  const db = readDatabase();
+  const db = await openDb();
 
-  if (db.find(u => u.email === email)) {
+  const existingUser = await db.get('SELECT * FROM users WHERE email = ?', email);
+  if (existingUser) {
     return res.status(400).json({ message: 'Usuário já existe.' });
   }
 
   const saltRounds = 10;
   const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-  const newUser = {
-    id: Date.now(),
+  const result = await db.run(
+    'INSERT INTO users (email, password) VALUES (?, ?)',
     email,
-    password: hashedPassword,
-    passwords: []
-  };
+    hashedPassword
+  );
 
-  db.push(newUser);
-  writeDatabase(db);
-
-  res.status(201).json({ message: 'Usuário registrado com sucesso.' });
+  res.status(201).json({ message: 'Usuário registrado com sucesso.', userId: result.lastID });
 };
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
-  const db = readDatabase();
-  const user = db.find(u => u.email === email);
+  const db = await openDb();
+  const user = await db.get('SELECT * FROM users WHERE email = ?', email);
 
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return res.status(401).json({ message: 'Credenciais inválidas.' });
