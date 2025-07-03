@@ -23,13 +23,16 @@ export const getPassword = (req, res) => {
 };
 
 export const createPassword = (req, res) => {
-  const { service, password } = req.body;
+  const { service, password, email, username, notes } = req.body;
   const encryptedPassword = encrypt(password);
 
   const newPassword = {
     id: Date.now(),
     service,
     password: encryptedPassword,
+    email, 
+    username, 
+    notes,
   };
 
   const db = readDatabase();
@@ -43,7 +46,7 @@ export const createPassword = (req, res) => {
 };
 
 export const updatePassword = (req, res) => {
-  const { service, password } = req.body;
+  const { service, password, email, username, notes } = req.body;
   const db = readDatabase();
   const user = db.find(u => u.id === req.user.id);
   const index = user?.passwords.findIndex(p => p.id === parseInt(req.params.id));
@@ -51,6 +54,9 @@ export const updatePassword = (req, res) => {
   if (index === -1) return res.status(404).json({ message: 'Senha não encontrada.' });
 
   if (service) user.passwords[index].service = service;
+  if (email) user.passwords[index].email = email;
+  if (username) user.passwords[index].username = username; 
+  if (notes) user.passwords[index].notes = notes;
 
   if (password) {
     user.passwords[index].password = encrypt(password);
