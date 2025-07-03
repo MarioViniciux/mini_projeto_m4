@@ -11,6 +11,7 @@ import { authenticateToken } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.use(authenticateToken);
+
 router.get('/', getAllPasswords);
 router.get('/:id', getPassword);
 router.post('/', createPassword);

@@ -1,37 +1,61 @@
 import { readDatabase, writeDatabase } from '../utils/db.js';
+import { encrypt, decrypt } from '../utils/crypto.js';
 
 export const getAllPasswords = (req, res) => {
   const db = readDatabase();
   const user = db.find(u => u.id === req.user.id);
-  res.json(user ? user.passwords : []);
+  const passwords = user ? user.passwords : []
+
+  const sanitizedPasswords = passwords.map(({ password, ...rest }) => rest)
+
+  res.json(sanitizedPasswords);
 };
 
 export const getPassword = (req, res) => {
   const db = readDatabase();
   const user = db.find(u => u.id === req.user.id);
-  const pass = user?.passwords.find(p => p.id === parseInt(req.params.id));
-  if (!pass) return res.status(404).json({ message: 'Senha não encontrada.' });
-  res.json(pass);
+  const encryptedPass = user?.passwords.find(p => p.id === parseInt(req.params.id));
+
+  if (!encryptedPass) return res.status(404).json({ message: 'Senha não encontrada.' });
+
+  const decryptedPassword = decrypt(encryptedPass.password);
+  res.json({ ...encryptedPass, password: decryptedPassword });
 };
 
 export const createPassword = (req, res) => {
+  const { service, password } = req.body;
+  const encryptedPassword = encrypt(password);
+
+  const newPassword = {
+    id: Date.now(),
+    service,
+    password: encryptedPassword,
+  };
+
   const db = readDatabase();
   const user = db.find(u => u.id === req.user.id);
-
-  const newPass = { id: Date.now(), ...req.body };
-  user.passwords.push(newPass);
+  
+  user.passwords.push(newPassword);
 
   writeDatabase(db);
-  res.status(201).json(newPass);
+  
+  res.status(201).json(newPassword);
 };
 
 export const updatePassword = (req, res) => {
+  const { service, password } = req.body;
   const db = readDatabase();
   const user = db.find(u => u.id === req.user.id);
-  const index = user.passwords.findIndex(p => p.id === parseInt(req.params.id));
+  const index = user?.passwords.findIndex(p => p.id === parseInt(req.params.id));
+
   if (index === -1) return res.status(404).json({ message: 'Senha não encontrada.' });
 
-  user.passwords[index] = { ...user.passwords[index], ...req.body };
+  if (service) user.passwords[index].service = service;
+
+  if (password) {
+    user.passwords[index].password = encrypt(password);
+  }
+
   writeDatabase(db);
   res.json(user.passwords[index]);
 };
@@ -39,7 +63,9 @@ export const updatePassword = (req, res) => {
 export const deletePassword = (req, res) => {
   const db = readDatabase();
   const user = db.find(u => u.id === req.user.id);
+
   user.passwords = user.passwords.filter(p => p.id !== parseInt(req.params.id));
+
   writeDatabase(db);
   res.json({ message: 'Senha removida.' });
 };
