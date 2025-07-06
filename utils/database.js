@@ -2,10 +2,14 @@
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 
+// Define o caminho do banco de dados. Usa a variável de ambiente se existir,
+// senão, usa o arquivo local.
+const DATABASE_PATH = process.env.DATABASE_PATH || './database.db';
+
 // Função para abrir uma conexão com o banco de dados SQLite
 export async function openDb() {
   return open({
-    filename: './database.db', // Caminho do arquivo do banco de dados
+    filename: DATABASE_PATH, // Caminho do arquivo do banco de dados
     driver: sqlite3.Database   // Driver utilizado
   });
 }
