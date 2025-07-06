@@ -1,56 +1,65 @@
-import { openDb } from '../utils/database.js';
+import { pool } from '../utils/database.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 
-// Função auxiliar para gerenciar as tags associadas a uma senha
-const manageTags = async (db, passwordId, tags) => {
-  // Remove todas as tags antigas associadas à senha
-  await db.run('DELETE FROM password_tags WHERE password_id = ?', passwordId);
+// Função para buscar as tags associadas a uma senha
+const getTagsForPassword = async (passwordId) => {
+    const query = `
+        SELECT t.id, t.name FROM tags t
+        INNER JOIN password_tags pt ON t.id = pt.tag_id
+        WHERE pt.password_id = $1
+    `;
+    const result = await pool.query(query, [passwordId]);
+    return result.rows;
+};
+
+// Função para gerenciar as tags associadas a uma senha
+const manageTags = async (client, passwordId, tags) => {
+  // Limpa as associações de tags antigas para esta senha
+  await client.query('DELETE FROM password_tags WHERE password_id = $1', [passwordId]);
 
   if (!tags || tags.length === 0) {
-    return [];
+    return []; // Retorna um array vazio se não houver tags
   }
 
   const tagObjects = [];
   for (const tagName of tags) {
-    // Verifica se a tag já existe
-    let tag = await db.get('SELECT * FROM tags WHERE name = ?', tagName);
+    // Verifica se a tag existe ou a cria
+    let tagResult = await client.query('SELECT id, name FROM tags WHERE name = $1', [tagName]);
+    let tag = tagResult.rows[0];
+
     if (!tag) {
-      // Cria a tag se não existir
-      const result = await db.run('INSERT INTO tags (name) VALUES (?)', tagName);
-      tag = { id: result.lastID, name: tagName };
+      const newTagResult = await client.query('INSERT INTO tags (name) VALUES ($1) RETURNING id, name', [tagName]);
+      tag = newTagResult.rows[0];
     }
+    
     tagObjects.push(tag);
-    // Associa a tag à senha
-    await db.run('INSERT INTO password_tags (password_id, tag_id) VALUES (?, ?)', passwordId, tag.id);
+    
+    // Cria a nova associação
+    await client.query('INSERT INTO password_tags (password_id, tag_id) VALUES ($1, $2)', [passwordId, tag.id]);
   }
   return tagObjects;
 };
 
-// Cria uma nova senha para o usuário autenticado
 export const createPassword = async (req, res) => {
   const { service, password, email, username, notes, tags } = req.body;
-  // Criptografa a senha antes de salvar
   const encryptedPassword = encrypt(password);
-  const db = await openDb();
+  
+  // Pega um cliente do pool para a transação
+  const client = await pool.connect();
 
   try {
-    // Inicia uma transação
-    await db.exec('BEGIN TRANSACTION'); 
+    await client.query('BEGIN'); // Inicia a transação
 
-    // Insere a senha no banco
-    const result = await db.run(
-      'INSERT INTO passwords (service, password, email, username, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)',
-      service, encryptedPassword, email, username, notes, req.user.id
+    const passResult = await client.query(
+      'INSERT INTO passwords (service, password, email, username, notes, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [service, encryptedPassword, email, username, notes, req.user.id]
     );
-    const passwordId = result.lastID;
+    const passwordId = passResult.rows[0].id;
 
-    // Gerencia as tags associadas
-    const createdTags = await manageTags(db, passwordId, tags);
+    const createdTags = await manageTags(client, passwordId, tags);
 
-    // Finaliza a transação
-    await db.exec('COMMIT');
+    await client.query('COMMIT'); // Confirma a transação se tudo deu certo
 
-    // Retorna os dados da senha criada
     res.status(201).json({
       id: passwordId,
       service,
@@ -60,47 +69,55 @@ export const createPassword = async (req, res) => {
       tags: createdTags,
     });
   } catch (error) {
-    // Em caso de erro, desfaz a transação
-    await db.exec('ROLLBACK'); 
-    res.status(500).json({ message: 'Erro ao criar a senha.', error: error.message });
+    await client.query('ROLLBACK'); // Desfaz a transação em caso de erro
+    console.error('Erro ao criar senha:', error);
+    res.status(500).json({ message: 'Erro ao criar a senha.' });
+  } finally {
+    client.release(); // Libera o cliente de volta para o pool
   }
 };
 
-// Atualiza uma senha existente do usuário autenticado
 export const updatePassword = async (req, res) => {
-    const { service, password, email, username, notes, tags } = req.body;
     const passwordId = req.params.id;
-    const db = await openDb();
+    const { service, password, email, username, notes, tags } = req.body;
+    
+    const client = await pool.connect();
 
     try {
-        await db.exec('BEGIN TRANSACTION');
+        await client.query('BEGIN');
 
-        // Busca a senha para garantir que pertence ao usuário
-        const existingPassword = await db.get('SELECT * FROM passwords WHERE id = ? AND user_id = ?', passwordId, req.user.id);
+        const existingPassResult = await client.query('SELECT * FROM passwords WHERE id = $1 AND user_id = $2', [passwordId, req.user.id]);
+        const existingPassword = existingPassResult.rows[0];
+
         if (!existingPassword) {
-            await db.exec('ROLLBACK');
+            await client.query('ROLLBACK');
             return res.status(404).json({ message: 'Senha não encontrada ou não pertence a este usuário.' });
         }
 
-        // Atualiza apenas os campos fornecidos
+        // Prepara os novos dados, mantendo os antigos se nada for enviado
         const newService = service !== undefined ? service : existingPassword.service;
         const newEmail = email !== undefined ? email : existingPassword.email;
         const newUsername = username !== undefined ? username : existingPassword.username;
         const newNotes = notes !== undefined ? notes : existingPassword.notes;
         const newEncryptedPassword = password ? encrypt(password) : existingPassword.password;
 
-        // Atualiza a senha no banco
-        await db.run(
-            'UPDATE passwords SET service = ?, password = ?, email = ?, username = ?, notes = ? WHERE id = ?',
-            newService, newEncryptedPassword, newEmail, newUsername, newNotes, passwordId
+        await client.query(
+            'UPDATE passwords SET service = $1, password = $2, email = $3, username = $4, notes = $5 WHERE id = $6',
+            [newService, newEncryptedPassword, newEmail, newUsername, newNotes, passwordId]
         );
 
-        // Atualiza as tags, se fornecidas
-        const updatedTags = tags !== undefined ? await manageTags(db, passwordId, tags) : await getTagsForPassword(db, passwordId);
+        let updatedTags = [];
+        if (tags !== undefined) {
+            updatedTags = await manageTags(client, passwordId, tags);
+        } else {
+            // Se as tags não forem enviadas, busca as existentes para retornar no objeto
+            const existingTagsResult = await client.query(`
+                SELECT t.id, t.name FROM tags t JOIN password_tags pt ON t.id = pt.tag_id WHERE pt.password_id = $1`, [passwordId]);
+            updatedTags = existingTagsResult.rows;
+        }
 
-        await db.exec('COMMIT');
+        await client.query('COMMIT');
 
-        // Retorna os dados atualizados
         res.json({
             id: parseInt(passwordId, 10),
             service: newService,
@@ -109,66 +126,64 @@ export const updatePassword = async (req, res) => {
             notes: newNotes,
             tags: updatedTags
         });
+
     } catch (error) {
-        await db.exec('ROLLBACK');
-        res.status(500).json({ message: 'Erro ao atualizar a senha.', error: error.message });
+        await client.query('ROLLBACK');
+        console.error('Erro ao atualizar senha:', error);
+        res.status(500).json({ message: 'Erro ao atualizar a senha.' });
+    } finally {
+        client.release();
     }
 };
 
-// Busca todas as tags associadas a uma senha
-const getTagsForPassword = async (db, passwordId) => {
-    return await db.all(`
-        SELECT t.id, t.name FROM tags t
-        INNER JOIN password_tags pt ON t.id = pt.tag_id
-        WHERE pt.password_id = ?
-    `, passwordId);
-};
-
-// Retorna todas as senhas do usuário autenticado (sem mostrar a senha em si)
 export const getAllPasswords = async (req, res) => {
-  const db = await openDb();
-  const passwords = await db.all('SELECT id, service, email, username, notes FROM passwords WHERE user_id = ?', req.user.id);
+  try {
+    const result = await pool.query('SELECT id, service, email, username, notes FROM passwords WHERE user_id = $1 ORDER BY id DESC', [req.user.id]);
+    const passwords = result.rows;
 
-  // Adiciona as tags de cada senha
-  for (const password of passwords) {
-    password.tags = await getTagsForPassword(db, password.id);
+    // Para cada senha, busca e anexa suas tags
+    for (const password of passwords) {
+      password.tags = await getTagsForPassword(password.id);
+    }
+    
+    res.json(passwords);
+  } catch (error) {
+    console.error('Erro ao buscar senhas:', error);
+    res.status(500).json({ message: "Erro ao buscar senhas." });
   }
-
-  res.json(passwords);
 };
 
-// Retorna uma senha específica do usuário autenticado (inclui a senha descriptografada)
 export const getPassword = async (req, res) => {
-    const db = await openDb();
-    const password = await db.get('SELECT * FROM passwords WHERE id = ? AND user_id = ?', req.params.id, req.user.id);
+    try {
+        const result = await pool.query('SELECT * FROM passwords WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+        const password = result.rows[0];
 
-    if (!password) {
-        return res.status(404).json({ message: 'Senha não encontrada ou não pertence a este usuário.' });
+        if (!password) {
+            return res.status(404).json({ message: 'Senha não encontrada ou não pertence a este usuário.' });
+        }
+
+        password.tags = await getTagsForPassword(password.id);
+        password.password = decrypt(password.password);
+
+        res.json(password);
+    } catch (error) {
+        console.error('Erro ao buscar senha:', error);
+        res.status(500).json({ message: "Erro ao buscar a senha." });
     }
-
-    const tags = await getTagsForPassword(db, password.id);
-    // Descriptografa a senha antes de retornar
-    const decryptedPassword = decrypt(password.password);
-
-    res.json({
-      id: password.id,
-      service: password.service,
-      password: decryptedPassword,
-      email: password.email,
-      username: password.username,
-      notes: password.notes,
-      tags: tags
-    });
 };
 
-// Remove uma senha do usuário autenticado
 export const deletePassword = async (req, res) => {
-    const db = await openDb();
-    const result = await db.run('DELETE FROM passwords WHERE id = ? AND user_id = ?', req.params.id, req.user.id);
+    try {
+        const result = await pool.query('DELETE FROM passwords WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
 
-    if (result.changes === 0) {
-        return res.status(404).json({ message: 'Senha não encontrada ou não pertence a este usuário.' });
+        // .rowCount informa quantas linhas foram afetadas
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: 'Senha não encontrada ou não pertence a este usuário.' });
+        }
+
+        res.json({ message: 'Senha removida com sucesso.' });
+    } catch (error) {
+        console.error('Erro ao deletar senha:', error);
+        res.status(500).json({ message: "Erro ao deletar a senha." });
     }
-
-    res.json({ message: 'Senha removida com sucesso.' });
 };
