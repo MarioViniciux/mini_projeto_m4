@@ -1,6 +1,6 @@
 # 🔐 API Gerenciadora de Senhas com Tags
 
-Uma API RESTful segura para gerenciamento de senhas, desenvolvida em Node.js e Express. Utiliza autenticação baseada em JSON Web Token (JWT), armazena dados em um banco de dados SQLite e suporta um sistema flexível de tags para organização.
+Uma API RESTful segura para gerenciamento de senhas, desenvolvida em Node.js e Express. Utiliza autenticação baseada em JSON Web Token (JWT), armazena dados em um banco de dados Postgresql e suporta um sistema flexível de tags para organização.
 
 ## ✨ Funcionalidades
 
@@ -8,13 +8,13 @@ Uma API RESTful segura para gerenciamento de senhas, desenvolvida em Node.js e E
 -   **Gerenciamento de Senhas (CRUD)**: Operações completas para criar, ler, atualizar e deletar senhas.
 -   **Atualizações Parciais (PATCH/PUT)**: O endpoint de atualização modifica apenas os campos enviados, preservando os dados existentes.
 -   **Sistema de Tags**: Associe múltiplas tags a cada senha para facilitar a organização e a busca (relação muitos-para-muitos).
--   **Banco de Dados SQLite**: Persistência de dados robusta e local, ideal para desenvolvimento e pequenas aplicações.
+-   **Banco de Dados Postgresql**: Persistência de dados robusta e local, ideal para desenvolvimento e pequenas aplicações.
 -   **Rotas Protegidas**: Middleware para garantir que apenas usuários autenticados possam acessar os endpoints de senhas.
 
 ## 🛠️ Tecnologias Utilizadas
 
 -   **Backend**: Node.js, Express.js
--   **Banco de Dados**: SQLite3
+-   **Banco de Dados**: Postgresql
 -   **Autenticação**: JSON Web Token (JWT), bcrypt
 -   **Variáveis de Ambiente**: `dotenv`
 -   **Outros**: `cors`
